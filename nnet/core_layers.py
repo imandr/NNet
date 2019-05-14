@@ -127,7 +127,7 @@ class Flatten(Layer):
         return cfg
         
 def core_layer(cfg):
-    if cfg["type"] == "flaten":
+    if cfg["type"] == "flatten":
         return Flatten(name=cfg.get("name"), lid=cfg["id"])
     elif cfg["type"] == "input":
         return Input(tuple(cfg["shape"]), name=cfg.get("name"), lid=cfg["id"])
@@ -135,4 +135,6 @@ def core_layer(cfg):
         return Merge(axis=cfg["axis"], name=cfg.get("name"), lid=cfg["id"])
     elif cfg["type"] == "linear":
         return Linear(cfg["nout"], name=cfg.get("name"), lid=cfg["id"])
+    else:
+        raise ValueError("Unknown core layer type: %s" % (cfg["type"],))
  

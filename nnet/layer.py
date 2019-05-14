@@ -118,6 +118,9 @@ class Layer(object):
         elif cfg["type"] == "activation":
             from .activations import ActivationLayer
             return ActivationLayer.from_config(cfg)
+            
+        else:
+            raise ValueError("Unknown layer type: %s" % (cfg["type"],))
                 
 #
 # overridables
