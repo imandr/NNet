@@ -43,17 +43,27 @@ class Model(object):
     def tick(self):
         self.T += 1
         
-    def run(self, xs, ys_=None):
+    def predict(self, xs):
+        assert len(xs) == len(self.Inputs)
+        self.tick()
+        for inp, x in zip(self.Inputs, xs):
+            inp.set(x, self.T)
+        return [out.forward(self.T) for out in self.Outputs]
+
+    def forward(self, xs, ys_=None):
         y = self.predict(xs)
         losses, metrics = self.evaluate(ys_)
         return y, losses, metrics
         
-    def predict(self, xs, tick = True):
-        assert len(xs) == len(self.Inputs)
-        if tick:    self.tick()
-        for inp, x in zip(self.Inputs, xs):
-            inp.set(x, self.T)
-        return [out.forward(self.T) for out in self.Outputs]
+    run = forward
+        
+    def backward(self, ys_):
+        for out, yi_ in zip(self.Outputs, ys_):
+            out.backward(yi_, self.T)
+            
+    def train(self):
+        for out in self.Outputs:
+            out.train(self.Trainer, self.Regularizer, self.T)
 
     def evaluate(self, ys_):
         if ys_ is None:
@@ -61,19 +71,16 @@ class Model(object):
         losses = [loss.loss(yi_) for loss, yi_ in zip(self.Outputs, ys_)]
         metrics = [loss.Metric(out.Y, yi_) for (out, yi_) in zip(self.Outputs, ys_)]
         return losses, metrics
-        
+
     def fit_batch(self, xs, ys_):
         self.resetState()
-        ys, losses_before, metrics_before = self.run(xs, ys_)
-        for out, yi_ in zip(self.Outputs, ys_):
-            out.backward(yi_, self.T)
-        for out in self.Outputs:
-            out.train(self.Trainer, self.Regularizer, self.T)
+        self.forward(xs, ys_)
+        self.backward(ys_)
+        self.train()
         self.predict(xs)
         return self.evaluate(ys_)
             
     def fit_dataset(self, xs, ys, batch_size, epochs = 1, shuffle = False, callbacks = None):
-        
         #
         # shuffle is not working yet
         #

@@ -67,7 +67,7 @@ class L2Loss(LossLayer):
         cfg["function"] = "l2"
         return cfg
 
-class CrossEntoryLoss(LossLayer):
+class CrossEntropyLoss(LossLayer):
     
     # input is unnormalized values before x -> exp(x)/sum(exp(x))
     
