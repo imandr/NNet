@@ -21,7 +21,7 @@ class LossLayer(Layer):
         if cfg["function"] == "l2":
             return L2Loss(name=cfg.get("name"), lid=cfg["id"])
         elif cfg["function"] == "crossentropy":
-            return CrossEntoryLoss(name=cfg.get("name"), lid=cfg["id"])
+            return CrossEntropyLoss(name=cfg.get("name"), lid=cfg["id"])
         else:
             raise ValueError("Unknown loss function: "+cfg["function"])
 
