@@ -1,64 +1,90 @@
 from .core_layers import Input
-from .loss import LossLayer
+from .losses import LossLayer
 from .trainers import SGD
+from .layer import Layer
 import numpy as np
 
-def Model(object):
+class Model(object):
     
-    def __init__(self, inputs, outputs, losses):
+    def __init__(self, inputs, outputs):
         self.Inputs = inputs if isinstance(inputs, list) else [inputs]
         for inp in self.Inputs:
             assert isinstance(inp, Input)
         self.Outputs = outputs if isinstance(outputs, list) else [outputs]
         self.T = 0
+    
+    def layers_rec(self, top, dct, out):
+        for inp in top.Inputs:
+            self.layers_rec(inp, dct, out)
+        lid = top.ID
+        if not lid in dct:
+            dct[lid] = top
+            out.append(top)
+
+    @property
+    def layers(self):
+        dct = {}
+        out = []
+        for top in self.Outputs:
+            self.layers_rec(top, dct, out)
+        return out
         
-    def compile(self, losses, trainer=None, regularizer=None):
-        losses = losses if isinstance(losses, list) else [losses]
-        assert len(losses) == len(self.Outputs)
-        for loss, out in zip(losses, self.Outputs):
-            assert isinstance(loss, LossLayer)
-            loss.link(out)
-        self.Trainer = trainer or SGD(0.001)
+    def compile(self, trainer=None, regularizer=None):
+        for out in self.Outputs:
+            assert isinstance(out, LossLayer), "Output layers of a trainable model must be LossLayers"
+        self.Trainer = trainer or SGD(0.01)
         self.Regularizer= regularizer
         
     def resetState(self):
+        # will not increment T !
         for out in self.Outputs:
-            out.reset_state(self.T)
+            out.resetState(self.T)
+            
+    def tick(self):
+        self.T += 1
         
-    def predict(self, inputs, next_t = True, reset_state = True):
-        assert len(inputs) == len(self.Inputs)
-        if next_t:  
-            self.T += 1
-            if reset_state:
-                self.resetState()
-        for inp, x in zip(self.Inputs, inputs):
+    def run(self, xs, ys_=None):
+        y = self.predict(xs)
+        losses, metrics = self.evaluate(ys_)
+        return y, losses, metrics
+        
+    def predict(self, xs, tick = True):
+        assert len(xs) == len(self.Inputs)
+        if tick:    self.tick()
+        for inp, x in zip(self.Inputs, xs):
             inp.set(x, self.T)
         return [out.forward(self.T) for out in self.Outputs]
 
+    def evaluate(self, ys_):
+        if ys_ is None:
+            return None, None
+        losses = [loss.loss(yi_) for loss, yi_ in zip(self.Outputs, ys_)]
+        metrics = [loss.Metric(out.Y, yi_) for (out, yi_) in zip(self.Outputs, ys_)]
+        return losses, metrics
+        
     def fit_batch(self, xs, ys_):
-        self.T += 1
         self.resetState()
-        assert len(xs) == len(self.Inputs)
-        ys = self.predict(xs)
-        losses_before = [loss.loss(yi_, self.T) for loss, yi_ in zip(self.Losses, ys_)]
-        for loss, yi_ in zip(self.Losses, ys_):
-            loss.backward(yi_, self.T)
+        ys, losses_before, metrics_before = self.run(xs, ys_)
+        for out, yi_ in zip(self.Outputs, ys_):
+            out.backward(yi_, self.T)
         for out in self.Outputs:
             out.train(self.Trainer, self.Regularizer, self.T)
-        return self.evaluate(xs, ys_)
+        self.predict(xs)
+        return self.evaluate(ys_)
             
-    def evaluate(self, xs, ys_):
-        self.T += 1
-        self.resetState()
-        losses = [loss.loss(yi_, self.T) for loss, yi_ in zip(self.Losses, ys_)]
-        metrics = [loss.Metric(out.Y, ys_) for (out, loss) in zip(self.Outputs, self.Losses)]
-        return losses, metric
+    def fit_dataset(self, xs, ys, batch_size, epochs = 1, shuffle = False, callbacks = None):
         
-    def fit_dataset(self, xs, ys, batch_size, epochs = 1, shuffle = True, callbacks = None):
-        assert len(xs) == len(ys)
-        N = len(xs)
+        #
+        # shuffle is not working yet
+        #
+        shuffle = False
+        N = len(xs[0])
+        for x in xs:
+            assert len(x) == N
+        for y in ys:
+            assert len(y) == N
         if shuffle:
-            inx = np.arange(len(N))
+            inx = np.arange(N)
         xx, yy = xs, ys
         samples = 0
         total_samples = N*epochs
@@ -66,13 +92,16 @@ def Model(object):
         for epoch in range(epochs):
 
             if shuffle:
-                np.shuffle(inx)
-                xx, yy = xs[inx], ys[inx]
+                np.random.shuffle(inx)
+                xx = [x[inx] for x in xs]
+                yy = [y[inx] for y in ys]
             
             for i in range(0, N, batch_size):
-                last_x, last_y = xx[i:i+batch_size], yy[i:i+batch_size
-                losses, metrics = self.fit_batch(xx[i:i+batch_size], yy[i:i+batch_size])
-                samples += len(xx[i:i+batch_size])
+                losses, metrics = self.fit_batch(
+                    [x[i:i+batch_size] for x in xx],
+                    [y[i:i+batch_size] for y in yy]
+                )
+                samples += len(xx[0][i:i+batch_size])
                 
                 if callbacks:
                     callbacks.onBatchEnd(samples, total_samples, losses, metrics)
@@ -107,4 +136,52 @@ def Model(object):
             
         return losses, metrics
         
-    
+    def config(self):
+        lst = self.layers
+        for i, layer in enumerate(lst):
+            layer.ID = i
+        out = dict(
+            inputs = [inp.ID for inp in self.Inputs],
+            layers = [layer.config() for layer in self.layers],
+            outputs = [out.ID for out in self.Outputs]
+        )
+        return out
+        
+    @staticmethod
+    def from_config(cfg):
+        layers = {}
+        for l in cfg["layers"]:
+            layers[l["id"]] = Layer.from_config(l)
+        for l in cfg["layers"]:
+            layer = layers[l["id"]]
+            inputs = [layers[lid] for lid in l.get("inputs", [])]
+            if inputs:
+                layer.link(inputs)
+        inputs = [layers[lid] for lid in cfg["inputs"]]
+        outputs = [layers[lid] for lid in cfg["outputs"]]
+        return Model(inputs, outputs)
+                
+        
+    def get_params(self):
+        out = []
+        for layer in self.layers:
+            p = layer.get_params()
+            if p:   out += p
+        return out
+        
+    def set_params(self, params):
+        i = 0
+        for layer in self.layers:
+            n = layer.nparams()
+            if n > 0:
+                layer.set_params(params[i:i+n])
+                i += n
+        
+    def get_grads(self):
+        out = []
+        for layer in self.layers:
+            g = layer.get_grads()
+            if g:   out += g
+        return out
+        
+        

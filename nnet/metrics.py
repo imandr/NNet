@@ -22,6 +22,6 @@ class ClassificationError(Metric):
         Metric.__init__(self, label)
         
     def __call__(self, y_, y):
-        return float(np.sum(np.argmax(y_, axis=-1) != np.argmax(y, axis=-1)), axis=0)/len(y)
+        return float(sum(np.argmax(y_, axis=-1) == np.argmax(y, axis=-1)))/len(y)
     
         
