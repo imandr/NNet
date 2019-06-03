@@ -169,14 +169,14 @@ class Model(object):
         return Model(inputs, outputs)
                 
         
-    def get_params(self):
+    def get_weights(self):
         out = []
         for layer in self.layers:
             p = layer.get_params()
             if p:   out += p
         return out
         
-    def set_params(self, params):
+    def set_weights(self, params):
         i = 0
         for layer in self.layers:
             n = layer.nparams()
